@@ -13,7 +13,6 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60
     jwt_remember_me_expire_days: int = 30
-    frontend_origin: str = "http://localhost:5173"
     frontend_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:8000,http://localhost:5174,http://127.0.0.1:3000,http://127.0.0.1:8000,http://10.10.53.122:8000,http://10.10.53.122:3000,https://civicscon.web.app,https://civicsconnect-frontend-134081639696.asia-south1.run.app"
     environment: str = "development"
     gemini_api_key: str = ""
@@ -28,8 +27,6 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         origins = [origin.strip() for origin in self.frontend_origins.split(",") if origin.strip()]
-        if self.frontend_origin not in origins:
-            origins.append(self.frontend_origin)
         return origins
 
 
