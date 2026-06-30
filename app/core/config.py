@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60
     jwt_remember_me_expire_days: int = 30
-    frontend_origin: str = "http://localhost:3000"
-    frontend_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    frontend_origin: str = "https://civicsconnect-frontend-134081639696.asia-south1.run.app"
+    frontend_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000,http://localhost:5173,https://civicscon.web.app"
     environment: str = "development"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"

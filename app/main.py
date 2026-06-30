@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -17,25 +19,36 @@ from app.routers.issues import router as issues_router
 
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 Path("uploads").mkdir(parents=True, exist_ok=True)
 
-Base.metadata.create_all(bind=engine)
 
-with engine.begin() as connection:
-    connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS reporter_id UUID REFERENCES users(id) ON DELETE SET NULL'))
-    connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_summary TEXT'))
-    connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_public_note TEXT'))
-    connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_worker VARCHAR(160)'))
-    connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_date DATE'))
-    connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_materials VARCHAR(255)'))
-    connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_before_image TEXT'))
-    connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_after_image TEXT'))
-    connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_resolution_resolved BOOLEAN'))
-    connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_resolution_confidence INTEGER'))
-    connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_resolution_remarks TEXT'))
-    connection.execute(text('CREATE INDEX IF NOT EXISTS ix_issues_reporter_id ON issues (reporter_id)'))
+def initialize_database() -> None:
+    try:
+        Base.metadata.create_all(bind=engine)
+        with engine.begin() as connection:
+            connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS reporter_id UUID REFERENCES users(id) ON DELETE SET NULL'))
+            connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_summary TEXT'))
+            connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_public_note TEXT'))
+            connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_worker VARCHAR(160)'))
+            connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_date DATE'))
+            connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_materials VARCHAR(255)'))
+            connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_before_image TEXT'))
+            connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_after_image TEXT'))
+            connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_resolution_resolved BOOLEAN'))
+            connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_resolution_confidence INTEGER'))
+            connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_resolution_remarks TEXT'))
+            connection.execute(text('CREATE INDEX IF NOT EXISTS ix_issues_reporter_id ON issues (reporter_id)'))
+    except SQLAlchemyError as exc:
+        logger.warning("Database initialization skipped at startup: %s", exc)
+
 
 app = FastAPI(title="CivicConnect AI API", version="1.0.0")
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    asyncio.create_task(asyncio.to_thread(initialize_database))
 
 app.add_middleware(
     CORSMiddleware,
