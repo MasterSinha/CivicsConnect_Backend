@@ -39,6 +39,10 @@ def initialize_database() -> None:
             connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_resolution_confidence INTEGER'))
             connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_resolution_remarks TEXT'))
             connection.execute(text('CREATE INDEX IF NOT EXISTS ix_issues_reporter_id ON issues (reporter_id)'))
+            
+            # Ensure votes table has user_id and index
+            connection.execute(text('ALTER TABLE votes ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE'))
+            connection.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS uq_votes_issue_user_type ON votes (issue_id, user_id, vote_type) WHERE user_id IS NOT NULL'))
     except SQLAlchemyError as exc:
         logger.warning("Database initialization skipped at startup: %s", exc)
 
@@ -50,12 +54,25 @@ app = FastAPI(title="CivicConnect AI API", version="1.0.0")
 async def startup_event() -> None:
     asyncio.create_task(asyncio.to_thread(initialize_database))
 
+
+# Determine CORS settings based on environment.
+# In development, dynamically allow all HTTP/HTTPS origins to completely resolve development CORS blocks,
+# since allow_origins=["*"] is incompatible with allow_credentials=True.
+if settings.environment.lower() == "development":
+    cors_kwargs = {
+        "allow_origin_regex": r"https?://.*",
+    }
+else:
+    cors_kwargs = {
+        "allow_origins": settings.cors_origins,
+    }
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    **cors_kwargs,
 )
 
 app.include_router(auth_router)

@@ -5,7 +5,9 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 
-from app.database import SessionLocal
+from sqlalchemy.orm import Session
+
+from app.database import get_db
 from app.deps import get_current_user
 from app.models import Comment, Issue, User, Vote
 from app.schemas import CommentResponse, IssueOut, VerificationResponse
@@ -38,39 +40,39 @@ def verify_issue(
     vote_type: str = Form(default="verify"),
     evidence: UploadFile | None = File(default=None),
     user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> VerificationResponse:
     if vote_type not in {"upvote", "verify"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported verification action")
 
-    with SessionLocal() as db:
-        issue = db.get(Issue, issue_id)
-        if issue is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
-        if issue.reporter_id == user.id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot verify your own report")
-        existing_vote = db.scalar(
-            select(Vote).where(
-                Vote.issue_id == issue.id,
-                Vote.user_id == user.id,
-                Vote.vote_type == vote_type,
-            )
+    issue = db.get(Issue, issue_id)
+    if issue is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+    if issue.reporter_id == user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot verify your own report")
+    existing_vote = db.scalar(
+        select(Vote).where(
+            Vote.issue_id == issue.id,
+            Vote.user_id == user.id,
+            Vote.vote_type == vote_type,
         )
-        if existing_vote is not None:
-            action = "verified" if vote_type == "verify" else "upvoted"
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"You already {action} this report")
+    )
+    if existing_vote is not None:
+        action = "verified" if vote_type == "verify" else "upvoted"
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"You already {action} this report")
 
-        evidence_url = save_evidence(evidence)
-        vote = Vote(issue_id=issue.id, user_id=user.id, user_label=user.name, vote_type=vote_type, evidence_url=evidence_url)
-        issue.votes += 1
-        if vote_type == "verify":
-            issue.verified_count += 1
-        issue.trust_score = min(99, 72 + issue.verified_count + min(issue.votes, 20))
+    evidence_url = save_evidence(evidence)
+    vote = Vote(issue_id=issue.id, user_id=user.id, user_label=user.name, vote_type=vote_type, evidence_url=evidence_url)
+    issue.votes += 1
+    if vote_type == "verify":
+        issue.verified_count += 1
+    issue.trust_score = min(99, 72 + issue.verified_count + min(issue.votes, 20))
 
-        db.add(vote)
-        db.commit()
-        db.refresh(issue)
-        db.refresh(vote)
-        return VerificationResponse(issue=IssueOut.model_validate(issue), vote=vote)
+    db.add(vote)
+    db.commit()
+    db.refresh(issue)
+    db.refresh(vote)
+    return VerificationResponse(issue=IssueOut.model_validate(issue), vote=vote)
 
 
 @router.post("/comments", response_model=CommentResponse, status_code=status.HTTP_201_CREATED)
@@ -79,18 +81,18 @@ def add_comment(
     body: str = Form(min_length=2),
     user_label: str = Form(default="Community Member"),
     evidence: UploadFile | None = File(default=None),
+    db: Session = Depends(get_db),
 ) -> CommentResponse:
     evidence_url = save_evidence(evidence)
-    with SessionLocal() as db:
-        issue = db.get(Issue, issue_id)
-        if issue is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+    issue = db.get(Issue, issue_id)
+    if issue is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
-        comment = Comment(issue_id=issue.id, user_label=user_label.strip() or "Community Member", body=body.strip(), evidence_url=evidence_url)
-        issue.trust_score = min(99, issue.trust_score + 1)
+    comment = Comment(issue_id=issue.id, user_label=user_label.strip() or "Community Member", body=body.strip(), evidence_url=evidence_url)
+    issue.trust_score = min(99, issue.trust_score + 1)
 
-        db.add(comment)
-        db.commit()
-        db.refresh(issue)
-        db.refresh(comment)
-        return CommentResponse(issue=IssueOut.model_validate(issue), comment=comment)
+    db.add(comment)
+    db.commit()
+    db.refresh(issue)
+    db.refresh(comment)
+    return CommentResponse(issue=IssueOut.model_validate(issue), comment=comment)

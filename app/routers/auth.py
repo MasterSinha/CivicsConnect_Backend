@@ -23,7 +23,7 @@ def set_auth_cookie(response: Response, token: str, max_age_seconds: int) -> Non
         max_age=max_age_seconds,
         httponly=True,
         secure=settings.secure_cookies,
-        samesite="lax",
+        samesite=settings.cookie_samesite,
         path="/",
     )
 
