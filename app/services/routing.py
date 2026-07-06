@@ -105,3 +105,19 @@ def route_issue_to_authority(db: Session, issue: Issue) -> IssueAssignment | Non
     assignment.distance_km = round(distance, 1)
     assignment.routed_by_fallback = in_radius is None
     return assignment
+
+
+def route_unassigned_issues(db: Session) -> int:
+    seed_missing_authority_profiles(db)
+    unassigned_issues = list(
+        db.scalars(
+            select(Issue)
+            .outerjoin(IssueAssignment, IssueAssignment.issue_id == Issue.id)
+            .where(IssueAssignment.id.is_(None))
+        ).all()
+    )
+    routed = 0
+    for issue in unassigned_issues:
+        if route_issue_to_authority(db, issue) is not None:
+            routed += 1
+    return routed

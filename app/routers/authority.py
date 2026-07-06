@@ -9,7 +9,7 @@ from app.database import get_db
 from app.deps import require_roles
 from app.models import AuthorityProfile, Issue, IssueAssignment, IssueSeverity, IssueStatus, User, UserRole
 from app.schemas import IssueResolutionRequest
-from app.services.routing import ensure_authority_profile
+from app.services.routing import ensure_authority_profile, route_unassigned_issues
 
 router = APIRouter(tags=["authority"])
 
@@ -120,6 +120,7 @@ def authority_dashboard(
     db: Session = Depends(get_db),
 ) -> dict:
     profile = ensure_authority_profile(db, user)
+    route_unassigned_issues(db)
     rows = assigned_issue_rows(db, user)
     issues = [issue for issue, _ in rows]
     total = len(issues)
@@ -180,6 +181,7 @@ def authority_issues(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     ensure_authority_profile(db, user)
+    route_unassigned_issues(db)
     rows = assigned_issue_rows(db, user)
     db.commit()
     return [issue_payload(issue, assignment) for issue, assignment in rows]
