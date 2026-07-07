@@ -113,12 +113,33 @@ CREATE TABLE IF NOT EXISTS issue_assignments (
   department VARCHAR(120) NOT NULL,
   distance_km DOUBLE PRECISION NOT NULL,
   routed_by_fallback BOOLEAN NOT NULL DEFAULT FALSE,
+  field_worker VARCHAR(160),
+  priority VARCHAR(40),
+  eta DATE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE issue_assignments ADD COLUMN IF NOT EXISTS field_worker VARCHAR(160);
+ALTER TABLE issue_assignments ADD COLUMN IF NOT EXISTS priority VARCHAR(40);
+ALTER TABLE issue_assignments ADD COLUMN IF NOT EXISTS eta DATE;
 
 CREATE INDEX IF NOT EXISTS ix_issue_assignments_issue_id ON issue_assignments (issue_id);
 CREATE INDEX IF NOT EXISTS ix_issue_assignments_authority_id ON issue_assignments (authority_id);
 CREATE INDEX IF NOT EXISTS ix_issue_assignments_department ON issue_assignments (department);
+
+CREATE TABLE IF NOT EXISTS authority_workers (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  authority_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  department VARCHAR(120) NOT NULL,
+  name VARCHAR(160) NOT NULL,
+  phone_number VARCHAR(32),
+  role_label VARCHAR(120),
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_authority_workers_authority_id ON authority_workers (authority_id);
+CREATE INDEX IF NOT EXISTS ix_authority_workers_department ON authority_workers (department);
 
 CREATE TABLE IF NOT EXISTS votes (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

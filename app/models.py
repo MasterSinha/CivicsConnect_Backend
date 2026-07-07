@@ -112,6 +112,22 @@ class IssueAssignment(Base):
     department: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
     distance_km: Mapped[float] = mapped_column(Float, nullable=False)
     routed_by_fallback: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    field_worker: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    priority: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    eta: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AuthorityWorker(Base):
+    __tablename__ = "authority_workers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    authority_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    department: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    role_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

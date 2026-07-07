@@ -38,6 +38,12 @@ def initialize_database() -> None:
             connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_resolution_confidence INTEGER'))
             connection.execute(text('ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_resolution_remarks TEXT'))
             connection.execute(text('CREATE INDEX IF NOT EXISTS ix_issues_reporter_id ON issues (reporter_id)'))
+            connection.execute(text('ALTER TABLE issue_assignments ADD COLUMN IF NOT EXISTS field_worker VARCHAR(160)'))
+            connection.execute(text('ALTER TABLE issue_assignments ADD COLUMN IF NOT EXISTS priority VARCHAR(40)'))
+            connection.execute(text('ALTER TABLE issue_assignments ADD COLUMN IF NOT EXISTS eta DATE'))
+            connection.execute(text('CREATE TABLE IF NOT EXISTS authority_workers (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), authority_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, department VARCHAR(120) NOT NULL, name VARCHAR(160) NOT NULL, phone_number VARCHAR(32), role_label VARCHAR(120), active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())'))
+            connection.execute(text('CREATE INDEX IF NOT EXISTS ix_authority_workers_authority_id ON authority_workers (authority_id)'))
+            connection.execute(text('CREATE INDEX IF NOT EXISTS ix_authority_workers_department ON authority_workers (department)'))
             
             # Ensure votes table has user_id and index
             connection.execute(text('ALTER TABLE votes ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE'))

@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import require_roles
-from app.models import AuthorityProfile, Issue, IssueAssignment, IssueSeverity, IssueStatus, User, UserRole
-from app.schemas import AuthorityProfileUpdate, IssueResolutionRequest
+from app.models import AuthorityProfile, AuthorityWorker, Issue, IssueAssignment, IssueSeverity, IssueStatus, User, UserRole
+from app.schemas import AuthorityProfileUpdate, AuthorityWorkerCreate, AuthorityWorkerOut, IssueAssignmentRequest, IssueResolutionRequest
 from app.services.routing import ensure_authority_profile, route_eligible_issues_to_profile, route_unassigned_issues
 
 router = APIRouter(tags=["authority"])
@@ -82,6 +82,9 @@ def issue_payload(issue: Issue, assignment: IssueAssignment) -> dict:
         "assigned_department": assignment.department,
         "authority_distance_km": assignment.distance_km,
         "routed_by_fallback": assignment.routed_by_fallback,
+        "assigned_worker": assignment.field_worker,
+        "assignment_priority": assignment.priority,
+        "assignment_eta": assignment.eta.isoformat() if assignment.eta else None,
     }
 
 
@@ -217,9 +220,45 @@ def authority_issues(
     return [issue_payload(issue, assignment) for issue, assignment in rows]
 
 
+@router.get("/authority/workers", response_model=list[AuthorityWorkerOut])
+def list_authority_workers(
+    user: User = Depends(require_roles(UserRole.authority, UserRole.admin)),
+    db: Session = Depends(get_db),
+) -> list[AuthorityWorker]:
+    profile = ensure_authority_profile(db, user)
+    return list(
+        db.scalars(
+            select(AuthorityWorker)
+            .where(AuthorityWorker.authority_id == user.id, AuthorityWorker.department == profile.department, AuthorityWorker.active.is_(True))
+            .order_by(AuthorityWorker.created_at.desc())
+        ).all()
+    )
+
+
+@router.post("/authority/workers", response_model=AuthorityWorkerOut, status_code=status.HTTP_201_CREATED)
+def create_authority_worker(
+    payload: AuthorityWorkerCreate,
+    user: User = Depends(require_roles(UserRole.authority, UserRole.admin)),
+    db: Session = Depends(get_db),
+) -> AuthorityWorker:
+    profile = ensure_authority_profile(db, user)
+    worker = AuthorityWorker(
+        authority_id=user.id,
+        department=(payload.department or profile.department).strip(),
+        name=payload.name.strip(),
+        phone_number=(payload.phone_number or "").strip() or None,
+        role_label=(payload.role_label or "").strip() or None,
+    )
+    db.add(worker)
+    db.commit()
+    db.refresh(worker)
+    return worker
+
+
 @router.put("/issues/{issue_id}/assign")
 def assign_issue(
     issue_id: UUID,
+    payload: IssueAssignmentRequest | None = None,
     user: User = Depends(require_roles(UserRole.authority, UserRole.admin)),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -229,6 +268,12 @@ def assign_issue(
     issue = db.get(Issue, issue_id)
     if issue is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+    if payload:
+        if payload.field_worker is not None:
+            assignment.field_worker = payload.field_worker.strip() or None
+        if payload.priority is not None:
+            assignment.priority = payload.priority.strip() or None
+        assignment.eta = payload.eta
     if issue.status != IssueStatus.resolved:
         issue.status = IssueStatus.in_review
     db.commit()
@@ -241,7 +286,7 @@ def update_issue_status(
     user: User = Depends(require_roles(UserRole.authority, UserRole.admin)),
     db: Session = Depends(get_db),
 ) -> dict:
-    return assign_issue(issue_id, user, db)
+    return assign_issue(issue_id, None, user, db)
 
 
 @router.post("/issues/{issue_id}/resolution")

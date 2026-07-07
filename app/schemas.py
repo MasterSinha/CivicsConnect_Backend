@@ -74,6 +74,32 @@ class AuthorityProfileUpdate(BaseModel):
     radius_km: float | None = Field(default=None, ge=1, le=100)
 
 
+class AuthorityWorkerCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=160)
+    department: str | None = Field(default=None, max_length=120)
+    phone_number: str | None = Field(default=None, max_length=32)
+    role_label: str | None = Field(default=None, max_length=120)
+
+
+class AuthorityWorkerOut(BaseModel):
+    id: UUID
+    authority_id: UUID
+    department: str
+    name: str
+    phone_number: str | None
+    role_label: str | None
+    active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class IssueAssignmentRequest(BaseModel):
+    field_worker: str | None = Field(default=None, max_length=160)
+    priority: str | None = Field(default=None, max_length=40)
+    eta: date | None = None
+
+
 class DashboardMetric(BaseModel):
     label: str
     value: int
