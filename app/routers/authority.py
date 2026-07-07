@@ -255,6 +255,28 @@ def create_authority_worker(
     return worker
 
 
+@router.delete("/authority/workers/{worker_id}")
+def delete_authority_worker(
+    worker_id: UUID,
+    user: User = Depends(require_roles(UserRole.authority, UserRole.admin)),
+    db: Session = Depends(get_db),
+) -> dict:
+    profile = ensure_authority_profile(db, user)
+    worker = db.scalar(
+        select(AuthorityWorker).where(
+            AuthorityWorker.id == worker_id,
+            AuthorityWorker.authority_id == user.id,
+            AuthorityWorker.department == profile.department,
+            AuthorityWorker.active.is_(True),
+        )
+    )
+    if worker is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Worker not found")
+    worker.active = False
+    db.commit()
+    return {"worker_id": str(worker_id), "message": "Worker removed successfully"}
+
+
 @router.put("/issues/{issue_id}/assign")
 def assign_issue(
     issue_id: UUID,
