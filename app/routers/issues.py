@@ -1,9 +1,6 @@
-import shutil
 from math import atan2, cos, radians, sin, sqrt
 from datetime import timedelta
-from pathlib import Path
 from uuid import UUID
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import or_, select
@@ -14,10 +11,10 @@ from app.deps import get_current_user
 from app.models import Issue, IssueCategory, IssueSeverity, IssueStatus, User
 from app.schemas import IssueDetail, IssueOut, MapIssue
 from app.services.routing import department_for_issue, route_issue_to_authority
+from app.storage import save_upload_file
 
 router = APIRouter(prefix="/issues", tags=["issues"])
 
-UPLOAD_DIR = Path("uploads")
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
@@ -43,13 +40,7 @@ def save_upload(image: UploadFile | None) -> str | None:
     if image.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only JPG, PNG, and WebP images are allowed")
 
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    suffix = Path(image.filename).suffix.lower()
-    filename = f"{uuid4().hex}{suffix}"
-    destination = UPLOAD_DIR / filename
-    with destination.open("wb") as buffer:
-        shutil.copyfileobj(image.file, buffer)
-    return f"/uploads/{filename}"
+    return save_upload_file(image, prefix="issue-")
 
 
 @router.post("", response_model=IssueOut, status_code=status.HTTP_201_CREATED)

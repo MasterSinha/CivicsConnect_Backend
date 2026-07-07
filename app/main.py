@@ -1,7 +1,5 @@
 import asyncio
 import logging
-from pathlib import Path
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -16,11 +14,12 @@ from app.routers.dashboard import router as dashboard_router
 from app.routers.ai import router as ai_router
 from app.routers.community import router as community_router
 from app.routers.issues import router as issues_router
+from app.storage import UPLOAD_DIR
 
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
-Path("uploads").mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def initialize_database() -> None:
@@ -81,7 +80,7 @@ app.include_router(dashboard_router)
 app.include_router(ai_router)
 app.include_router(community_router)
 app.include_router(issues_router)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
 @app.get("/health")

@@ -46,6 +46,23 @@ def data_url_payload(value: str) -> tuple[str, str] | None:
     return mime_type, encoded
 
 
+async def image_payload(value: str) -> tuple[str, str] | None:
+    data_payload = data_url_payload(value)
+    if data_payload is not None:
+        return data_payload
+
+    if value.startswith("http://") or value.startswith("https://"):
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(value)
+            response.raise_for_status()
+        content_type = response.headers.get("content-type", "image/jpeg").split(";", 1)[0]
+        if not content_type.startswith("image/"):
+            content_type = "image/jpeg"
+        return content_type, base64.b64encode(response.content).decode("utf-8")
+
+    return None
+
+
 def fallback_resolution_verification(before_image: str, after_image: str) -> AiResolutionVerificationResponse:
     has_before = len(before_image.strip()) > 20
     has_after = len(after_image.strip()) > 20
@@ -142,8 +159,13 @@ async def analyze_issue_image(image: UploadFile, category_hint: str | None = Non
 
 async def verify_resolution_images(before_image: str, after_image: str) -> AiResolutionVerificationResponse:
     settings = get_settings()
-    before_payload = data_url_payload(before_image)
-    after_payload = data_url_payload(after_image)
+    try:
+        before_payload = await image_payload(before_image)
+        after_payload = await image_payload(after_image)
+    except httpx.HTTPError:
+        before_payload = None
+        after_payload = None
+
     if not settings.gemini_api_key or before_payload is None or after_payload is None:
         return fallback_resolution_verification(before_image, after_image)
 

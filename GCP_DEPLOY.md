@@ -43,6 +43,9 @@ FRONTEND_ORIGINS
 ENVIRONMENT=production
 GEMINI_API_KEY
 GEMINI_MODEL=gemini-2.5-flash
+UPLOAD_STORAGE=gcs
+GCP_STORAGE_BUCKET=civicscon-uploads
+GCP_PROJECT_ID=civicscon
 ```
 
 Store sensitive values such as `DATABASE_URL`, `JWT_SECRET_KEY`, and `GEMINI_API_KEY` in Secret Manager.
@@ -69,6 +72,12 @@ Give the Cloud Run runtime service account access to read these secrets:
 
 ```bash
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:YOUR_RUNTIME_SERVICE_ACCOUNT" --role="roles/secretmanager.secretAccessor"
+```
+
+Give the same Cloud Run runtime service account access to write/read uploaded images in Cloud Storage:
+
+```bash
+gcloud storage buckets add-iam-policy-binding gs://civicscon-uploads --member="serviceAccount:YOUR_RUNTIME_SERVICE_ACCOUNT" --role="roles/storage.objectAdmin"
 ```
 
 ## 4. Build and deploy
@@ -98,4 +107,4 @@ Expected:
 ## Notes
 
 - Cloud Run container listens on `$PORT`, defaulting to `8080`.
-- Uploaded files in `uploads/` are local container storage and are not permanent on Cloud Run. For production persistence, move uploads to Cloud Storage later. The current deployment package intentionally does not change the existing upload connection/behavior.
+- Set `UPLOAD_STORAGE=gcs` with `GCP_STORAGE_BUCKET` to persist citizen complaint images and evidence in Cloud Storage. Local `uploads/` remains available only for development when `UPLOAD_STORAGE=local`.

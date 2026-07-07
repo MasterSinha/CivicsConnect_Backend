@@ -1,6 +1,4 @@
-import shutil
-from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
@@ -11,10 +9,10 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models import Comment, Issue, User, Vote
 from app.schemas import CommentResponse, IssueOut, VerificationResponse
+from app.storage import save_upload_file
 
 router = APIRouter(tags=["community"])
 
-UPLOAD_DIR = Path("uploads")
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
@@ -24,13 +22,7 @@ def save_evidence(evidence: UploadFile | None) -> str | None:
     if evidence.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only JPG, PNG, and WebP evidence is allowed")
 
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    suffix = Path(evidence.filename).suffix.lower()
-    filename = f"evidence-{uuid4().hex}{suffix}"
-    destination = UPLOAD_DIR / filename
-    with destination.open("wb") as buffer:
-        shutil.copyfileobj(evidence.file, buffer)
-    return f"/uploads/{filename}"
+    return save_upload_file(evidence, prefix="evidence-")
 
 
 @router.post("/verify", response_model=VerificationResponse, status_code=status.HTTP_201_CREATED)

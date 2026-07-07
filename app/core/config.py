@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     cookie_samesite: str = "lax"
+    upload_storage: str = "local"
+    gcp_storage_bucket: str = ""
+    gcp_project_id: str = ""
+    gcs_bucket_name: str = ""
+    gcs_public_base_url: str = ""
 
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8")
 
@@ -33,6 +38,14 @@ class Settings(BaseSettings):
             raw_origins += f",{self.frontend_origin}"
         origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
         return origins
+
+    @property
+    def storage_bucket_name(self) -> str:
+        return self.gcp_storage_bucket or self.gcs_bucket_name
+
+    @property
+    def storage_project_id(self) -> str | None:
+        return self.gcp_project_id or None
 
 
 @lru_cache

@@ -61,6 +61,7 @@ def issue_payload(issue: Issue, assignment: IssueAssignment) -> dict:
         "location": f"{issue.latitude:.4f}, {issue.longitude:.4f}",
         "votes": issue.votes,
         "verification_count": issue.verified_count,
+        "trust_score": issue.trust_score,
         "distance": assignment.distance_km,
         "image_url": issue.image_url,
         "reporter_phone": "+91 98765 43210",
