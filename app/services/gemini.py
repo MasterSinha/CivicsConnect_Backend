@@ -97,7 +97,8 @@ def fallback_resolution_verification(reason: str) -> AiResolutionVerificationRes
 
 
 def gemini_model_name() -> str:
-    return get_settings().gemini_model.strip() or "gemini-1.5-flash"
+    model = get_settings().gemini_model.strip() or "gemini-2.5-flash"
+    return model.removeprefix("models/")
 
 
 def inline_image_part(mime_type: str, encoded: str) -> dict:

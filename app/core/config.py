@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     frontend_origin: str = ""
     environment: str = "development"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-1.5-flash"
+    gemini_model: str = "gemini-2.5-flash"
     cookie_samesite: str = "lax"
     upload_storage: str = "local"
     gcp_storage_bucket: str = ""
