@@ -22,7 +22,10 @@ def save_evidence(evidence: UploadFile | None) -> str | None:
     if evidence.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only JPG, PNG, and WebP evidence is allowed")
 
-    return save_upload_file(evidence, prefix="evidence-")
+    try:
+        return save_upload_file(evidence, prefix="evidence-")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 @router.post("/verify", response_model=VerificationResponse, status_code=status.HTTP_201_CREATED)

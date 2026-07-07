@@ -40,7 +40,10 @@ def save_upload(image: UploadFile | None) -> str | None:
     if image.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only JPG, PNG, and WebP images are allowed")
 
-    return save_upload_file(image, prefix="issue-")
+    try:
+        return save_upload_file(image, prefix="issue-")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 @router.post("", response_model=IssueOut, status_code=status.HTTP_201_CREATED)

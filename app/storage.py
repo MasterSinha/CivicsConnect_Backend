@@ -40,7 +40,10 @@ def save_upload_file(upload: UploadFile, prefix: str = "") -> str:
         client = storage.Client(project=settings.storage_project_id)
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(filename)
-        blob.upload_from_file(upload.file, content_type=upload.content_type or "application/octet-stream")
+        try:
+            blob.upload_from_file(upload.file, content_type=upload.content_type or "application/octet-stream")
+        except Exception as exc:
+            raise RuntimeError(f"Unable to upload image to GCP bucket '{bucket_name}'. Check bucket name and Cloud Run service account Storage permissions.") from exc
         return _public_gcs_url(bucket_name, filename)
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
