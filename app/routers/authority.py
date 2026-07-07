@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import require_roles
 from app.models import AuthorityProfile, Issue, IssueAssignment, IssueSeverity, IssueStatus, User, UserRole
-from app.schemas import IssueResolutionRequest
-from app.services.routing import ensure_authority_profile, route_unassigned_issues
+from app.schemas import AuthorityProfileUpdate, IssueResolutionRequest
+from app.services.routing import ensure_authority_profile, route_eligible_issues_to_profile, route_unassigned_issues
 
 router = APIRouter(tags=["authority"])
 
@@ -95,13 +95,7 @@ def assigned_issue_rows(db: Session, user: User) -> list[tuple[Issue, IssueAssig
     )
 
 
-@router.get("/authority/profile")
-def authority_profile(
-    user: User = Depends(require_roles(UserRole.authority, UserRole.admin)),
-    db: Session = Depends(get_db),
-) -> dict:
-    profile = ensure_authority_profile(db, user)
-    db.commit()
+def profile_payload(profile: AuthorityProfile, user: User) -> dict:
     return {
         "id": str(profile.id),
         "user_id": str(user.id),
@@ -114,6 +108,39 @@ def authority_profile(
     }
 
 
+@router.get("/authority/profile")
+def authority_profile(
+    user: User = Depends(require_roles(UserRole.authority, UserRole.admin)),
+    db: Session = Depends(get_db),
+) -> dict:
+    profile = ensure_authority_profile(db, user)
+    db.commit()
+    return profile_payload(profile, user)
+
+
+@router.put("/authority/profile")
+def update_authority_profile(
+    payload: AuthorityProfileUpdate,
+    user: User = Depends(require_roles(UserRole.authority, UserRole.admin)),
+    db: Session = Depends(get_db),
+) -> dict:
+    profile = ensure_authority_profile(db, user)
+    if payload.department is not None:
+        profile.department = payload.department.strip()
+    if payload.zone is not None:
+        profile.zone = payload.zone.strip()
+    if payload.latitude is not None:
+        profile.latitude = payload.latitude
+    if payload.longitude is not None:
+        profile.longitude = payload.longitude
+    if payload.radius_km is not None:
+        profile.radius_km = payload.radius_km
+    route_unassigned_issues(db)
+    route_eligible_issues_to_profile(db, profile)
+    db.commit()
+    return profile_payload(profile, user)
+
+
 @router.get("/authority/dashboard")
 def authority_dashboard(
     user: User = Depends(require_roles(UserRole.authority, UserRole.admin)),
@@ -121,6 +148,7 @@ def authority_dashboard(
 ) -> dict:
     profile = ensure_authority_profile(db, user)
     route_unassigned_issues(db)
+    route_eligible_issues_to_profile(db, profile)
     rows = assigned_issue_rows(db, user)
     issues = [issue for issue, _ in rows]
     total = len(issues)
@@ -180,8 +208,9 @@ def authority_issues(
     user: User = Depends(require_roles(UserRole.authority, UserRole.admin)),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    ensure_authority_profile(db, user)
+    profile = ensure_authority_profile(db, user)
     route_unassigned_issues(db)
+    route_eligible_issues_to_profile(db, profile)
     rows = assigned_issue_rows(db, user)
     db.commit()
     return [issue_payload(issue, assignment) for issue, assignment in rows]

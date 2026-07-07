@@ -66,6 +66,14 @@ class AuthResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class AuthorityProfileUpdate(BaseModel):
+    department: str | None = Field(default=None, max_length=120)
+    zone: str | None = Field(default=None, max_length=160)
+    latitude: float | None = None
+    longitude: float | None = None
+    radius_km: float | None = Field(default=None, ge=1, le=100)
+
+
 class DashboardMetric(BaseModel):
     label: str
     value: int

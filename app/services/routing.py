@@ -121,3 +121,38 @@ def route_unassigned_issues(db: Session) -> int:
         if route_issue_to_authority(db, issue) is not None:
             routed += 1
     return routed
+
+
+def route_eligible_issues_to_profile(db: Session, profile: AuthorityProfile) -> int:
+    issues = list(db.scalars(select(Issue)).all())
+    routed = 0
+    for issue in issues:
+        department = department_for_issue(issue)
+        if department != profile.department:
+            continue
+        distance = distance_km(issue.latitude, issue.longitude, profile.latitude, profile.longitude)
+        if distance > profile.radius_km:
+            continue
+
+        assignment = db.scalar(select(IssueAssignment).where(IssueAssignment.issue_id == issue.id))
+        should_assign = (
+            assignment is None
+            or assignment.routed_by_fallback
+            or distance < assignment.distance_km
+            or assignment.authority_id == profile.user_id
+        )
+        if not should_assign:
+            continue
+
+        if assignment is None:
+            assignment = IssueAssignment(issue_id=issue.id)
+            db.add(assignment)
+
+        assignment.authority_id = profile.user_id
+        assignment.authority_profile_id = profile.id
+        assignment.department = department
+        assignment.distance_km = round(distance, 1)
+        assignment.routed_by_fallback = False
+        routed += 1
+
+    return routed
