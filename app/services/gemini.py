@@ -8,7 +8,7 @@ from app.core.config import get_settings
 from app.schemas import AiAnalysisResponse, AiResolutionVerificationResponse
 
 
-OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 FALLBACKS = {
     "pothole": ("Pothole", "High", "Road Department", "Road pothole needs repair", "Large road damage detected."),
@@ -82,63 +82,55 @@ async def image_payload(value: str) -> tuple[str, str] | None:
     return None
 
 
-def fallback_resolution_verification(before_image: str, after_image: str) -> AiResolutionVerificationResponse:
-    has_before = len(before_image.strip()) > 20
-    has_after = len(after_image.strip()) > 20
-    changed = before_image[:160] != after_image[:160] or len(before_image) != len(after_image)
-    confidence = 94 if has_before and has_after and changed else 42
+def fallback_resolution_verification(reason: str) -> AiResolutionVerificationResponse:
     return AiResolutionVerificationResponse(
-        resolved=confidence >= 70,
-        confidence=confidence,
-        remarks=(
-            "Before and after evidence show meaningful visual change. Repair can be sent for citizen confirmation."
-            if confidence >= 70
-            else "Before and after evidence do not show enough visible improvement. Additional work or clearer proof is required."
-        ),
+        resolved=False,
+        confidence=0,
+        remarks=reason,
         visual_improvements=[
-            "Before/after proof pair received",
-            "Visible evidence changed between original and completion images" if changed else "Limited visual difference detected",
-            "Ready for citizen confirmation" if confidence >= 70 else "Needs supervisor review",
+            "Gemini before/after verification did not run",
+            "No repair confidence was generated",
+            "Configure Gemini and run AI Check again",
         ],
-        requires_rework=confidence < 70,
+        requires_rework=True,
     )
 
 
-def openai_model_name() -> str:
-    return get_settings().openai_model.strip() or "gpt-4o-mini"
+def gemini_model_name() -> str:
+    return get_settings().gemini_model.strip() or "gemini-1.5-flash"
 
 
-def openai_headers() -> dict[str, str]:
+def inline_image_part(mime_type: str, encoded: str) -> dict:
     return {
-        "Authorization": f"Bearer {get_settings().openai_api_key.strip()}",
-        "Content-Type": "application/json",
+        "inline_data": {
+            "mime_type": mime_type,
+            "data": encoded,
+        }
     }
 
 
-def image_url_content(mime_type: str, encoded: str, detail: str = "low") -> dict:
-    return {
-        "type": "image_url",
-        "image_url": {
-            "url": f"data:{mime_type};base64,{encoded}",
-            "detail": detail,
-        },
-    }
+def gemini_url() -> str:
+    return GEMINI_GENERATE_URL.format(model=gemini_model_name())
 
 
-def openai_error_message(exc: Exception) -> str:
+def gemini_error_message(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         response_text = exc.response.text[:500]
-        return f"OpenAI API returned HTTP {exc.response.status_code}: {response_text}"
+        return f"Gemini API returned HTTP {exc.response.status_code}: {response_text}"
     if isinstance(exc, httpx.ConnectError):
-        return "OpenAI API connection failed. Check backend internet access, DNS, firewall, or VPN."
+        return "Gemini API connection failed. Check backend internet access, DNS, firewall, or VPN."
     if isinstance(exc, httpx.TimeoutException):
-        return "OpenAI API request timed out. Check backend internet access or try again."
-    return f"OpenAI response parsing failed: {type(exc).__name__}"
+        return "Gemini API request timed out. Check backend internet access or try again."
+    return f"Gemini response parsing failed: {type(exc).__name__}"
+
+
+def gemini_text(data: dict) -> str:
+    return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
 async def analyze_issue_image(image: UploadFile, category_hint: str | None = None) -> AiAnalysisResponse:
     settings = get_settings()
-    if not settings.openai_api_key:
+    if not settings.gemini_api_key:
         return fallback_analysis(category_hint, image.filename)
 
     image_bytes = await image.read()
@@ -160,39 +152,29 @@ async def analyze_issue_image(image: UploadFile, category_hint: str | None = Non
         f"User selected category hint: {category_hint or 'none'}. Use visual evidence first and do not copy the hint unless supported."
     )
     payload = {
-        "model": openai_model_name(),
-        "response_format": {"type": "json_object"},
-        "messages": [
+        "contents": [
             {
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    image_url_content(image.content_type or "image/jpeg", encoded, "high"),
+                "parts": [
+                    {"text": prompt},
+                    inline_image_part(image.content_type or "image/jpeg", encoded),
                 ],
             }
         ],
+        "generationConfig": {"response_mime_type": "application/json"},
     }
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(OPENAI_CHAT_COMPLETIONS_URL, headers=openai_headers(), json=payload)
+            response = await client.post(gemini_url(), params={"key": settings.gemini_api_key.strip()}, json=payload)
             response.raise_for_status()
             data = response.json()
 
-        text = data["choices"][0]["message"]["content"]
-        parsed = clean_json(text)
+        parsed = clean_json(gemini_text(data))
         filename_category = infer_category_from_text(image.filename)
         if filename_category and filename_category != infer_category_from_text(str(parsed.get("category", ""))):
             category, severity, department, title, description = FALLBACKS[filename_category]
-            parsed.update(
-                {
-                    "title": title,
-                    "category": category,
-                    "severity": severity,
-                    "department": department,
-                    "description": description,
-                }
-            )
+            parsed.update({"title": title, "category": category, "severity": severity, "department": department, "description": description})
         return AiAnalysisResponse(
             title=str(parsed.get("title") or parsed.get("category") or "Civic issue"),
             category=str(parsed.get("category", "Pothole")),
@@ -203,7 +185,7 @@ async def analyze_issue_image(image: UploadFile, category_hint: str | None = Non
             rejection_reason=(str(parsed.get("rejection_reason")) if parsed.get("rejection_reason") else None),
         )
     except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError) as exc:
-        raise RuntimeError(openai_error_message(exc)) from exc
+        raise RuntimeError(gemini_error_message(exc)) from exc
 
 
 async def verify_resolution_images(before_image: str, after_image: str) -> AiResolutionVerificationResponse:
@@ -215,8 +197,10 @@ async def verify_resolution_images(before_image: str, after_image: str) -> AiRes
         before_payload = None
         after_payload = None
 
-    if not settings.openai_api_key or before_payload is None or after_payload is None:
-        return fallback_resolution_verification(before_image, after_image)
+    if not settings.gemini_api_key:
+        return fallback_resolution_verification("Gemini API key is not configured. Set GEMINI_API_KEY in the backend environment and run AI Check again.")
+    if before_payload is None or after_payload is None:
+        return fallback_resolution_verification("Before and after images could not be prepared for Gemini verification. Upload valid image proof and run AI Check again.")
 
     prompt = (
         "Compare these two civic repair images. Image 1 is the original citizen complaint. "
@@ -229,26 +213,25 @@ async def verify_resolution_images(before_image: str, after_image: str) -> AiRes
         "and confidence between 0 and 20."
     )
     payload = {
-        "model": openai_model_name(),
-        "response_format": {"type": "json_object"},
-        "messages": [
+        "contents": [
             {
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    image_url_content(before_payload[0], before_payload[1]),
-                    image_url_content(after_payload[0], after_payload[1]),
+                "parts": [
+                    {"text": prompt},
+                    inline_image_part(before_payload[0], before_payload[1]),
+                    inline_image_part(after_payload[0], after_payload[1]),
                 ],
             }
         ],
+        "generationConfig": {"response_mime_type": "application/json"},
     }
     try:
         async with httpx.AsyncClient(timeout=35) as client:
-            response = await client.post(OPENAI_CHAT_COMPLETIONS_URL, headers=openai_headers(), json=payload)
+            response = await client.post(gemini_url(), params={"key": settings.gemini_api_key.strip()}, json=payload)
             response.raise_for_status()
             data = response.json()
 
-        parsed = clean_json(data["choices"][0]["message"]["content"])
+        parsed = clean_json(gemini_text(data))
         confidence = max(0, min(100, int(parsed.get("confidence", 0))))
         resolved = bool(parsed.get("resolved", confidence >= 70))
         requires_rework = bool(parsed.get("requires_rework", not resolved or confidence < 70))
@@ -265,5 +248,5 @@ async def verify_resolution_images(before_image: str, after_image: str) -> AiRes
             visual_improvements=[str(item) for item in parsed.get("visual_improvements", [])][:6],
             requires_rework=requires_rework,
         )
-    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError, json.JSONDecodeError):
-        return fallback_resolution_verification(before_image, after_image)
+    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        return fallback_resolution_verification(f"Gemini verification failed: {gemini_error_message(exc)}")
