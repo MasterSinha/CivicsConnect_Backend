@@ -268,6 +268,8 @@ def assign_issue(
     issue = db.get(Issue, issue_id)
     if issue is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+    if issue.status == IssueStatus.resolved:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Resolved reports are read-only")
     if payload:
         if payload.field_worker is not None:
             assignment.field_worker = payload.field_worker.strip() or None
@@ -302,6 +304,8 @@ def create_resolution(
     issue = db.get(Issue, issue_id)
     if issue is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+    if issue.status == IssueStatus.resolved:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Resolved reports are read-only")
     issue.status = IssueStatus.resolved
     issue.resolution_summary = payload.summary.strip()
     issue.resolution_public_note = (payload.public_note or "").strip() or None

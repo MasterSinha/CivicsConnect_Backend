@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
 from app.schemas import AiAnalysisResponse, AiResolutionVerificationRequest, AiResolutionVerificationResponse
-from app.services.gemini import analyze_issue_image, verify_resolution_images
+from app.services.openai import analyze_issue_image, verify_resolution_images
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -11,13 +11,13 @@ def ai_status() -> dict[str, str | bool | int]:
     from app.core.config import get_settings
 
     settings = get_settings()
-    key = settings.gemini_api_key.strip()
+    key = settings.openai_api_key.strip()
     return {
-        "gemini_configured": bool(key),
-        "gemini_model": settings.gemini_model,
+        "openai_configured": bool(key),
+        "openai_model": settings.openai_model,
         "key_length": len(key),
         "key_prefix": f"{key[:4]}..." if key else "",
-        "looks_like_google_ai_studio_key": key.startswith("AIza"),
+        "looks_like_openai_key": key.startswith("sk-"),
     }
 
 

@@ -8,6 +8,8 @@ from app.core.config import get_settings
 from app.schemas import AiAnalysisResponse, AiResolutionVerificationResponse
 
 
+OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+
 FALLBACKS = {
     "pothole": ("Pothole", "High", "Road Department", "Road pothole needs repair", "Large road damage detected."),
     "garbage": ("Garbage", "Medium", "Sanitation Department", "Garbage accumulation needs cleanup", "Garbage accumulation detected in a public area."),
@@ -16,9 +18,26 @@ FALLBACKS = {
     "drainage": ("Drainage", "High", "Drainage Department", "Drainage blockage needs clearing", "Drainage blockage or overflow detected."),
 }
 
+CATEGORY_KEYWORDS = {
+    "garbage": ("garbage", "trash", "waste", "bin", "bins", "dump", "dumping", "litter", "clean"),
+    "water_leakage": ("water", "leak", "leakage", "pipe", "pipeline"),
+    "streetlight": ("streetlight", "street light", "light", "lamp", "pole"),
+    "drainage": ("drain", "drainage", "sewer", "gutter", "waterlog", "blocked"),
+    "pothole": ("pothole", "road", "asphalt", "crack", "damage"),
+}
 
-def fallback_analysis(category_hint: str | None = None) -> AiAnalysisResponse:
-    category, severity, department, title, description = FALLBACKS.get((category_hint or "").lower(), FALLBACKS["pothole"])
+
+def infer_category_from_text(value: str | None) -> str | None:
+    text = (value or "").replace("_", " ").replace("-", " ").lower()
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        if any(keyword in text for keyword in keywords):
+            return category
+    return None
+
+
+def fallback_analysis(category_hint: str | None = None, filename: str | None = None) -> AiAnalysisResponse:
+    inferred_category = infer_category_from_text(filename) or (category_hint or "").lower()
+    category, severity, department, title, description = FALLBACKS.get(inferred_category, FALLBACKS["pothole"])
     return AiAnalysisResponse(
         title=title,
         category=category,
@@ -85,31 +104,46 @@ def fallback_resolution_verification(before_image: str, after_image: str) -> AiR
     )
 
 
-def gemini_model_name() -> str:
-    model = get_settings().gemini_model.strip()
-    return model.removeprefix("models/")
+def openai_model_name() -> str:
+    return get_settings().openai_model.strip() or "gpt-4o-mini"
 
 
-def gemini_error_message(exc: Exception) -> str:
+def openai_headers() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {get_settings().openai_api_key.strip()}",
+        "Content-Type": "application/json",
+    }
+
+
+def image_url_content(mime_type: str, encoded: str, detail: str = "low") -> dict:
+    return {
+        "type": "image_url",
+        "image_url": {
+            "url": f"data:{mime_type};base64,{encoded}",
+            "detail": detail,
+        },
+    }
+
+
+def openai_error_message(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         response_text = exc.response.text[:500]
-        return f"Gemini API returned HTTP {exc.response.status_code}: {response_text}"
+        return f"OpenAI API returned HTTP {exc.response.status_code}: {response_text}"
     if isinstance(exc, httpx.ConnectError):
-        return "Gemini API connection failed. Check backend internet access, DNS, firewall, or VPN."
+        return "OpenAI API connection failed. Check backend internet access, DNS, firewall, or VPN."
     if isinstance(exc, httpx.TimeoutException):
-        return "Gemini API request timed out. Check backend internet access or try again."
-    return f"Gemini response parsing failed: {type(exc).__name__}"
+        return "OpenAI API request timed out. Check backend internet access or try again."
+    return f"OpenAI response parsing failed: {type(exc).__name__}"
 
 
 async def analyze_issue_image(image: UploadFile, category_hint: str | None = None) -> AiAnalysisResponse:
     settings = get_settings()
-    if not settings.gemini_api_key:
-        return fallback_analysis(category_hint)
+    if not settings.openai_api_key:
+        return fallback_analysis(category_hint, image.filename)
 
     image_bytes = await image.read()
     await image.seek(0)
     encoded = base64.b64encode(image_bytes).decode("utf-8")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model_name()}:generateContent"
     prompt = (
         "Analyze this image for a civic complaint submission. Return only valid JSON with exactly these keys: "
         "is_civic_issue, title, category, severity, department, description, rejection_reason. "
@@ -118,6 +152,7 @@ async def analyze_issue_image(image: UploadFile, category_hint: str | None = Non
         "When is_civic_issue=false, set category='Invalid', severity='Low', department='Unassigned', "
         "title='Invalid civic evidence', description='Image is not valid civic issue evidence', and provide a short rejection_reason. "
         "When is_civic_issue=true, category must be one of Pothole, Garbage, Water Leakage, Streetlight, Drainage. "
+        "Images of dustbins, trash cans, garbage containers, litter, dumping, or waste collection must be categorized as Garbage, not Pothole. "
         "Title must be a concise complaint title under 70 characters based on the visible problem. "
         "Description must be one clear sentence describing the visible issue, likely risk, and needed action. "
         "Severity must be Low, Medium, or High. Department must be Road Department, Sanitation Department, "
@@ -125,25 +160,39 @@ async def analyze_issue_image(image: UploadFile, category_hint: str | None = Non
         f"User selected category hint: {category_hint or 'none'}. Use visual evidence first and do not copy the hint unless supported."
     )
     payload = {
-        "contents": [
+        "model": openai_model_name(),
+        "response_format": {"type": "json_object"},
+        "messages": [
             {
-                "parts": [
-                    {"text": prompt},
-                    {"inline_data": {"mime_type": image.content_type or "image/jpeg", "data": encoded}},
-                ]
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    image_url_content(image.content_type or "image/jpeg", encoded, "high"),
+                ],
             }
         ],
-        "generationConfig": {"response_mime_type": "application/json"},
     }
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(url, params={"key": settings.gemini_api_key}, json=payload)
+            response = await client.post(OPENAI_CHAT_COMPLETIONS_URL, headers=openai_headers(), json=payload)
             response.raise_for_status()
             data = response.json()
 
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        text = data["choices"][0]["message"]["content"]
         parsed = clean_json(text)
+        filename_category = infer_category_from_text(image.filename)
+        if filename_category and filename_category != infer_category_from_text(str(parsed.get("category", ""))):
+            category, severity, department, title, description = FALLBACKS[filename_category]
+            parsed.update(
+                {
+                    "title": title,
+                    "category": category,
+                    "severity": severity,
+                    "department": department,
+                    "description": description,
+                }
+            )
         return AiAnalysisResponse(
             title=str(parsed.get("title") or parsed.get("category") or "Civic issue"),
             category=str(parsed.get("category", "Pothole")),
@@ -154,7 +203,7 @@ async def analyze_issue_image(image: UploadFile, category_hint: str | None = Non
             rejection_reason=(str(parsed.get("rejection_reason")) if parsed.get("rejection_reason") else None),
         )
     except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError) as exc:
-        raise RuntimeError(gemini_error_message(exc)) from exc
+        raise RuntimeError(openai_error_message(exc)) from exc
 
 
 async def verify_resolution_images(before_image: str, after_image: str) -> AiResolutionVerificationResponse:
@@ -166,10 +215,9 @@ async def verify_resolution_images(before_image: str, after_image: str) -> AiRes
         before_payload = None
         after_payload = None
 
-    if not settings.gemini_api_key or before_payload is None or after_payload is None:
+    if not settings.openai_api_key or before_payload is None or after_payload is None:
         return fallback_resolution_verification(before_image, after_image)
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model_name()}:generateContent"
     prompt = (
         "Compare these two civic repair images. Image 1 is the original citizen complaint. "
         "Image 2 is the worker completion proof. Return only valid JSON with exactly these keys: "
@@ -181,24 +229,26 @@ async def verify_resolution_images(before_image: str, after_image: str) -> AiRes
         "and confidence between 0 and 20."
     )
     payload = {
-        "contents": [
+        "model": openai_model_name(),
+        "response_format": {"type": "json_object"},
+        "messages": [
             {
-                "parts": [
-                    {"text": prompt},
-                    {"inline_data": {"mime_type": before_payload[0], "data": before_payload[1]}},
-                    {"inline_data": {"mime_type": after_payload[0], "data": after_payload[1]}},
-                ]
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    image_url_content(before_payload[0], before_payload[1]),
+                    image_url_content(after_payload[0], after_payload[1]),
+                ],
             }
         ],
-        "generationConfig": {"response_mime_type": "application/json"},
     }
     try:
         async with httpx.AsyncClient(timeout=35) as client:
-            response = await client.post(url, params={"key": settings.gemini_api_key}, json=payload)
+            response = await client.post(OPENAI_CHAT_COMPLETIONS_URL, headers=openai_headers(), json=payload)
             response.raise_for_status()
             data = response.json()
 
-        parsed = clean_json(data["candidates"][0]["content"]["parts"][0]["text"])
+        parsed = clean_json(data["choices"][0]["message"]["content"])
         confidence = max(0, min(100, int(parsed.get("confidence", 0))))
         resolved = bool(parsed.get("resolved", confidence >= 70))
         requires_rework = bool(parsed.get("requires_rework", not resolved or confidence < 70))

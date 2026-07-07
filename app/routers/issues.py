@@ -152,26 +152,40 @@ def build_timeline(issue: Issue) -> list[dict]:
 
 
 @router.get("/map", response_model=list[MapIssue])
-def map_issues(db: Session = Depends(get_db)) -> list[dict]:
+def map_issues(
+    latitude: float | None = Query(default=None, ge=-90, le=90),
+    longitude: float | None = Query(default=None, ge=-180, le=180),
+    radius_km: float = Query(default=15, gt=0, le=100),
+    db: Session = Depends(get_db),
+) -> list[dict]:
     issues = list(db.scalars(select(Issue).order_by(Issue.created_at.desc())).all())
-    return [
-        {
-            "id": issue.id,
-            "title": issue.title,
-            "image_url": issue.image_url,
-            "latitude": issue.latitude,
-            "longitude": issue.longitude,
-            "status": issue.status,
-            "severity": issue.severity,
-            "category": issue.category,
-            "votes": issue.votes,
-            "verified_count": issue.verified_count,
-            "trust_score": issue.trust_score,
-            "distance": round(abs(issue.latitude - 28.6139) * 69 + abs(issue.longitude - 77.2090) * 69, 1),
-            "created_at": issue.created_at,
-        }
-        for issue in issues
-    ]
+    payload = []
+    for issue in issues:
+        distance = (
+            distance_km(latitude, longitude, issue.latitude, issue.longitude)
+            if latitude is not None and longitude is not None
+            else 0
+        )
+        if latitude is not None and longitude is not None and distance > radius_km:
+            continue
+        payload.append(
+            {
+                "id": issue.id,
+                "title": issue.title,
+                "image_url": issue.image_url,
+                "latitude": issue.latitude,
+                "longitude": issue.longitude,
+                "status": issue.status,
+                "severity": issue.severity,
+                "category": issue.category,
+                "votes": issue.votes,
+                "verified_count": issue.verified_count,
+                "trust_score": issue.trust_score,
+                "distance": round(distance, 1),
+                "created_at": issue.created_at,
+            }
+        )
+    return payload
 
 
 @router.get("/{issue_id}", response_model=IssueDetail)

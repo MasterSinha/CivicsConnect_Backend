@@ -1,6 +1,6 @@
 # Deploy CivicConnect Backend on Google Cloud Run
 
-This backend is packaged for Cloud Run. The app keeps the same FastAPI routes and environment-variable based database/JWT/Gemini connections.
+This backend is packaged for Cloud Run. The app keeps the same FastAPI routes and environment-variable based database/JWT/OpenAI connections.
 
 ## 1. Required GCP services
 
@@ -41,21 +41,21 @@ JWT_REMEMBER_ME_EXPIRE_DAYS
 FRONTEND_ORIGIN
 FRONTEND_ORIGINS
 ENVIRONMENT=production
-GEMINI_API_KEY
-GEMINI_MODEL=gemini-2.5-flash
+OPENAI_API_KEY
+OPENAI_MODEL=gpt-4o-mini
 UPLOAD_STORAGE=gcs
 GCP_STORAGE_BUCKET=civicscon-uploads
 GCP_PROJECT_ID=civicscon
 ```
 
-Store sensitive values such as `DATABASE_URL`, `JWT_SECRET_KEY`, and `GEMINI_API_KEY` in Secret Manager.
+Store sensitive values such as `DATABASE_URL`, `JWT_SECRET_KEY`, and `OPENAI_API_KEY` in Secret Manager.
 
 The provided `cloudbuild.yaml` expects these Secret Manager secret names:
 
 ```text
 DATABASE_URL
 JWT_SECRET_KEY
-GEMINI_API_KEY
+OPENAI_API_KEY
 ```
 
 Create them before deploying:
@@ -63,7 +63,7 @@ Create them before deploying:
 ```bash
 gcloud secrets create DATABASE_URL --replication-policy=automatic
 gcloud secrets create JWT_SECRET_KEY --replication-policy=automatic
-gcloud secrets create GEMINI_API_KEY --replication-policy=automatic
+gcloud secrets create OPENAI_API_KEY --replication-policy=automatic
 ```
 
 Then add secret versions from the GCP console or with `gcloud secrets versions add`.
